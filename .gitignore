@@ -23,3 +23,6 @@ backup_*.zip
 Thumbs.db
 .vscode/
 .idea/
+
+.claude
+flybrain-packages.txt

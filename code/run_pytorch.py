@@ -211,6 +211,11 @@ def get_weights(conn_path, comp_path, wt_dir, csr=True):
     coo_path = wt_dir / 'weight_coo.pkl'
     csr_path = wt_dir / 'weight_csr.pkl'
 
+    # Fast path: cached CSR exists -> skip parquet + COO (saves ~1-2 GB peak RAM)
+    if csr and csr_path.exists():
+        with open(csr_path, 'rb') as f:
+            return pickle.load(f)
+
     data_conn = pd.read_parquet(conn_path)
     data_name = pd.read_csv(comp_path)
     num_neurons = data_name.shape[0]

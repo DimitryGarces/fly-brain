@@ -105,6 +105,32 @@ class GroomingController:
 
 
 # ============================================================================
+# Observation cache (performance)
+# ============================================================================
+
+def install_observation_cache(fly):
+    """Memoize Fly.get_observation per physics timestep.
+
+    HybridTurningController.step() reads the observation at the start of
+    every step, but flygym already computed that exact observation at the
+    end of the previous step (no physics call happens in between, so the
+    sensor data is identical). Reusing it halves the most expensive part
+    of the body step (~1 ms/step).
+    """
+    orig_get_observation = fly.get_observation
+    cache = {'time': None, 'obs': None}
+
+    def cached_get_observation(sim):
+        t = sim.physics.data.ptr.time
+        if cache['time'] != t or cache['obs'] is None:
+            cache['obs'] = orig_get_observation(sim)
+            cache['time'] = t
+        return cache['obs']
+
+    fly.get_observation = cached_get_observation
+
+
+# ============================================================================
 # Main Simulation
 # ============================================================================
 
@@ -337,6 +363,7 @@ def main():
         seed=0,
         **arena_kwargs,
     )
+    install_observation_cache(fly)
 
     # ── Disable flygym's internal vision rendering BEFORE reset ──
     # Cameras and retina are already initialized from Fly.__init__().

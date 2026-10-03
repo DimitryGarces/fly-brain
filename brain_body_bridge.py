@@ -312,6 +312,10 @@ class BrainEngine:
         for name, flyid in DN_NEURONS.items():
             if flyid in self.flyid2i:
                 self.dn_indices[name] = self.flyid2i[flyid]
+        # Single gather index so DN readout needs one GPU->CPU sync, not 18
+        self._dn_names = list(self.dn_indices.keys())
+        self._dn_idx_t = torch.tensor(
+            list(self.dn_indices.values()), dtype=torch.long, device=self.device)
 
         # Precompute stimulus neuron tensor indices
         self.stim_indices = {}
@@ -463,22 +467,33 @@ class BrainEngine:
 
     def get_dn_spikes(self):
         """Return dict of current DN spike values {name: 0.0 or 1.0}."""
-        spk = self.state[2]
-        return {name: spk[0, idx].item()
-                for name, idx in self.dn_indices.items()}
+        vals = self.state[2][0, self._dn_idx_t].tolist()
+        return dict(zip(self._dn_names, vals))
 
     def register_population(self, name, tensor_indices):
         """Register a neuron population for aggregate spike monitoring."""
         self.populations[name] = tensor_indices
+        self._pop_idx_t = None  # rebuild gather tensors lazily
         print(f"[BrainEngine] Population '{name}': {len(tensor_indices)} neurons")
 
     def get_population_spikes(self):
         """Return {name: mean_spike_fraction} for all registered populations."""
-        spk = self.state[2]
-        result = {}
-        for name, indices in self.populations.items():
-            result[name] = spk[0, indices].mean().item()
-        return result
+        if getattr(self, '_pop_idx_t', None) is None:
+            names = list(self.populations.keys())
+            idx = [torch.as_tensor(self.populations[n], dtype=torch.long)
+                   for n in names]
+            self._pop_names = names
+            self._pop_idx_t = torch.cat(idx).to(self.device)
+            self._pop_seg_t = torch.repeat_interleave(
+                torch.arange(len(names)),
+                torch.tensor([len(i) for i in idx])).to(self.device)
+            self._pop_len_t = torch.tensor(
+                [len(i) for i in idx], dtype=torch.float32, device=self.device)
+        spk = self.state[2][0, self._pop_idx_t]
+        sums = torch.zeros(len(self._pop_names), device=self.device)
+        sums.index_add_(0, self._pop_seg_t, spk)
+        means = (sums / self._pop_len_t).tolist()
+        return dict(zip(self._pop_names, means))
 
 
 # ============================================================================

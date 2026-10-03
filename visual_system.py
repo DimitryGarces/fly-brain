@@ -175,7 +175,7 @@ class VisualSystem:
         side_col = self._find_col(df, ['side', 'hemisphere', 'Side'])
 
         photo_pattern = re.compile(r'^R[1-8]', re.IGNORECASE)
-        mask = df[type_col].astype(str).apply(lambda x: bool(photo_pattern.match(x)))
+        mask = df[type_col].fillna('').astype(str).apply(lambda x: bool(photo_pattern.match(x)))   
         photo_df = df[mask]
 
         print(f"[VisualSystem] Found {len(photo_df)} photoreceptor annotations")
